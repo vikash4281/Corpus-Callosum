@@ -1,9 +1,8 @@
 import json
 import boto3
 from smart_open import smart_open, codecs
-import confluent_kafka
-from kafka.producer import KafkaProducer
-from kafka.client import KafkaClient
+from ConfigParser import ConfigParser
+import psycopg2
 
 def publish_message(producerInstance, topic_name, key, value):
     "Function to send messages to the specific topic"
@@ -16,26 +15,71 @@ def publish_message(producerInstance, topic_name, key, value):
         print(str(ex))
 
 
-def connect_kafka_producer():
-    "Function to create a producer handle"
-    _producer = None
-    conf = {'bootstrap.servers': 'ec2-35-165-113-215.us-west-2.compute.amazonaws.com:9092,'
-                                 'ec2-54-69-173-183.us-west-2.compute.amazonaws.com:9092,'
-                                 'ec2-54-218-166-98.us-west-2.compute.amazonaws.com:9092,'
-                                 'ec2-52-24-63-41.us-west-2.compute.amazonaws.com:9092'}
+def config(filename='database.ini', section='postgresql'):
+    # create a parser
+    parser = ConfigParser()
+    # read config file
+    parser.read(filename)
+
+    # get section, default to postgresql
+    db = {}
+    if parser.has_section(section):
+        params = parser.items(section)
+        for param in params:
+            db[param[0]] = param[1]
+    else:
+        raise Exception('Section {0} not found in the {1} file'.format(section, filename))
+
+    return db
+
+
+def insert_data(finaldict):
+    conn = None
     try:
-        _producer = confluent_kafka.Producer(conf)
-    except Exception as ex:
-        print('Exception while connecting Kafka')
-        print(str(ex))
+        params = config()
+        # connect to the PostgreSQL database
+        conn = psycopg2.connect(**params)
+        # create a new cursor
+        curs = conn.cursor()
+        query = curs.mogrify("INSERT INTO {} ({}) VALUES {}".format(
+            "public.gkg",
+            ', '.join(finaldict[0].keys()),
+            ', '.join(["%s"] * len(finaldict))
+        ), [tuple(v.values()) for v in finaldict])
+        print(query)
+        # args_str = ','.join(curs.mogrify("(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,"
+        #                                  "%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,"
+        #                                  "%s,%s,%s,%s,%s,%s,%s)", str(x)) for x in tmpDict.values())
+        # query = "INSERT INTO table VALUES " + args_str
+        curs.execute(query)
+        conn.commit()
+        curs.close()
+    except (Exception, psycopg2.DatabaseError) as error:
+        print(error)
     finally:
-        return _producer
+        if conn is not None:
+            conn.close()
+
+# def connect_kafka_producer():
+#     "Function to create a producer handle"
+#     _producer = None
+#     conf = {'bootstrap.servers': 'ec2-35-165-113-215.us-west-2.compute.amazonaws.com:9092,'
+#                                  'ec2-54-69-173-183.us-west-2.compute.amazonaws.com:9092,'
+#                                  'ec2-54-218-166-98.us-west-2.compute.amazonaws.com:9092,'
+#                                  'ec2-52-24-63-41.us-west-2.compute.amazonaws.com:9092'}
+#     try:
+#         _producer = confluent_kafka.Producer(conf)
+#     except Exception as ex:
+#         print('Exception while connecting Kafka')
+#         print(str(ex))
+#     finally:
+#         return _producer
 
 
 client = boto3.client('s3')
 resource = boto3.resource('s3')
 my_bucket = resource.Bucket('gdelt-sample-data')
-files = list(my_bucket.objects.filter(Prefix='export'))
+files = list(my_bucket.objects.filter(Prefix='gkg'))
 obj = codecs.getreader('utf-8')(files[0].get()['Body'])
 events_columns = ['GlobalEventID', 'Day', 'MonthYear', 'Year', 'FractionDate',
                   'Actor1Code', 'Actor1Name', 'Actor1CountryCode',
@@ -60,17 +104,38 @@ events_columns = ['GlobalEventID', 'Day', 'MonthYear', 'Year', 'FractionDate',
                   'ActionGeo_CountryCode', 'ActionGeo_ADM1Code',
                   'ActionGeo_ADM2Code', 'ActionGeo_Lat', 'ActionGeo_Long',
                   'ActionGeo_FeatureID', 'DATEADDED', 'SOURCEURL']
-producer = KafkaProducer(bootstrap_servers= 'ec2-35-165-113-215.us-west-2.compute.amazonaws.com:9092,'
-                                 'ec2-54-69-173-183.us-west-2.compute.amazonaws.com:9092,'
-                                 'ec2-54-218-166-98.us-west-2.compute.amazonaws.com:9092,'
-                                 'ec2-52-24-63-41.us-west-2.compute.amazonaws.com:9092')
 
-kafkaProducer=connect_kafka_producer()
+gkg = ["recordid","date" , "srccollectionidentifier","srccommonname","documentid","counts","countsv1","themes","enhancedthemes",
+	"locations", "enhancedlocation","persons","enhancedpersons","organizations","enhancedorganizations","tone","enhanceddates",
+	"gcam","sharingimage","relatedimages", "socialimageembeds", "socialvideoembeds", "quotations", "allnames", "amounts","translationinfo",
+	"extrasxml"]
+# producer = KafkaProducer(bootstrap_servers= 'ec2-35-165-113-215.us-west-2.compute.amazonaws.com:9092,'
+#                                  'ec2-54-69-173-183.us-west-2.compute.amazonaws.com:9092,'
+#                                  'ec2-54-218-166-98.us-west-2.compute.amazonaws.com:9092,'
+#                                  'ec2-52-24-63-41.us-west-2.compute.amazonaws.com:9092')
+
+#kafkaProducer=connect_kafka_producer()
+features=[]
+finaldict=[]
 for record in obj:
     features = record.strip().split("\t")
-    tempDict = dict({events_columns[i]:features[i].encode("utf-8") for i in range(len(events_columns))})
+    if(len(features)==27):
+        tmpDict = dict()
+        tmpDict = dict({gkg[i]:features[i].encode("utf-8") for i in range(len(gkg))})
+        finaldict.append(tmpDict)
+print(len(finaldict[0].values()))
 
-publish_message(kafkaProducer,"my-topic","events",json.dumps(tempDict))
+for i in range(0,len(finaldict),1000):
+    insert_data(finaldict[i:i+1000])
+
+
+
+
+#publish_message(kafkaProducer, "my-topic", "gkg", record)
+   # features = record.strip().split("\t")
+   # tempDict = dict({events_columns[i]:features[i].encode("utf-8") for i in range(len(events_columns))})
+
+
    # producer.send("my-topic",str(record.encode("utf-8")),"events")
 
 

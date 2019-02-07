@@ -9,6 +9,7 @@ import org.apache.kafka.streams.StreamsBuilder;
 import org.apache.kafka.streams.StreamsConfig;
 import org.apache.kafka.streams.kstream.KStream;
 
+import java.util.Arrays;
 import java.util.Properties;
 import java.util.concurrent.CountDownLatch;
 
@@ -27,6 +28,8 @@ public class StreamProcessor {
         props.put(StreamsConfig.DEFAULT_VALUE_SERDE_CLASS_CONFIG, Serdes.String().getClass());
         final StreamsBuilder builder = new StreamsBuilder();
         KStream<String,String> eventStream = builder.stream(IKafkaConstants.TOPIC_NAME);
+        KStream<String,String> cleanedStream = eventStream.flatMapValues(value -> Arrays.asList(value.split("\t")));
+
         eventStream.to("test_data");
         final Topology topology = builder.build();
 
@@ -45,7 +48,7 @@ public class StreamProcessor {
             latch.await();
         } catch (Throwable e) {
             System.exit(1);
-            log.error("errror");
+            log.error("error");
         }
         System.exit(0);
     }
