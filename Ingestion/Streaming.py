@@ -33,7 +33,7 @@ def config(filename='database.ini', section='postgresql'):
     return db
 
 
-def insert_data(finaldict):
+def insert_data(finaldict,tablename):
     conn = None
     try:
         params = config()
@@ -42,15 +42,11 @@ def insert_data(finaldict):
         # create a new cursor
         curs = conn.cursor()
         query = curs.mogrify("INSERT INTO {} ({}) VALUES {}".format(
-            "public.gkg",
+            tablename,
             ', '.join(finaldict[0].keys()),
             ', '.join(["%s"] * len(finaldict))
         ), [tuple(v.values()) for v in finaldict])
         print(query)
-        # args_str = ','.join(curs.mogrify("(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,"
-        #                                  "%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,"
-        #                                  "%s,%s,%s,%s,%s,%s,%s)", str(x)) for x in tmpDict.values())
-        # query = "INSERT INTO table VALUES " + args_str
         curs.execute(query)
         conn.commit()
         curs.close()
@@ -75,12 +71,26 @@ def insert_data(finaldict):
 #     finally:
 #         return _producer
 
+# producer = KafkaProducer(bootstrap_servers= 'ec2-35-165-113-215.us-west-2.compute.amazonaws.com:9092,'
+#                                  'ec2-54-69-173-183.us-west-2.compute.amazonaws.com:9092,'
+#                                  'ec2-54-218-166-98.us-west-2.compute.amazonaws.com:9092,'
+#                                  'ec2-52-24-63-41.us-west-2.compute.amazonaws.com:9092')
+
+#kafkaProducer=connect_kafka_producer()
+
+def get_event_files(tableprefix):
+    return list(my_bucket.objects.filter(Prefix=tableprefix))
+
 
 client = boto3.client('s3')
 resource = boto3.resource('s3')
 my_bucket = resource.Bucket('gdelt-sample-data')
-files = list(my_bucket.objects.filter(Prefix='gkg'))
-obj = codecs.getreader('utf-8')(files[0].get()['Body'])
+events_files = get_event_files("event")
+gkg_files = get_event_files("gkg")
+mentions_files = get_event_files("mentions")
+gkg_obj = codecs.getreader('utf-8')(gkg_files[0].get()['Body'])
+event_obj = codecs.getreader('utf-8')(events_files[0].get()['Body'])
+mention_obj = codecs.getreader('utf-8')(mentions_files[0].get()['Body'])
 events_columns = ['GlobalEventID', 'Day', 'MonthYear', 'Year', 'FractionDate',
                   'Actor1Code', 'Actor1Name', 'Actor1CountryCode',
                   'Actor1KnownGroupCode', 'Actor1EthnicCode',
@@ -109,26 +119,43 @@ gkg = ["recordid","date" , "srccollectionidentifier","srccommonname","documentid
 	"locations", "enhancedlocation","persons","enhancedpersons","organizations","enhancedorganizations","tone","enhanceddates",
 	"gcam","sharingimage","relatedimages", "socialimageembeds", "socialvideoembeds", "quotations", "allnames", "amounts","translationinfo",
 	"extrasxml"]
-# producer = KafkaProducer(bootstrap_servers= 'ec2-35-165-113-215.us-west-2.compute.amazonaws.com:9092,'
-#                                  'ec2-54-69-173-183.us-west-2.compute.amazonaws.com:9092,'
-#                                  'ec2-54-218-166-98.us-west-2.compute.amazonaws.com:9092,'
-#                                  'ec2-52-24-63-41.us-west-2.compute.amazonaws.com:9092')
 
-#kafkaProducer=connect_kafka_producer()
-features=[]
-finaldict=[]
-for record in obj:
+mentions = ["GLOBALEVENTID","EventTimeDate","MentionTimeDate","MentionType","MentionSourceName","MentionIdentifier","SentenceID",
+            "Actor1CharOffset","Actor2CharOffset","ActionCharOffset","InRawText","Confidence","MentionDocLen","MentionDocTone",
+            "MentionDocTranslationInfo","Extras"]
+
+gkg_finaldict=[]
+for record in gkg_obj:
     features = record.strip().split("\t")
     if(len(features)==27):
         tmpDict = dict()
         tmpDict = dict({gkg[i]:features[i].encode("utf-8") for i in range(len(gkg))})
-        finaldict.append(tmpDict)
-print(len(finaldict[0].values()))
+        gkg_finaldict.append(tmpDict)
 
-for i in range(0,len(finaldict),1000):
-    insert_data(finaldict[i:i+1000])
+for i in range(0,len(gkg_finaldict),1000):
+    insert_data(gkg_finaldict[i:i+1000],"public.gkg")
 
+event_finaldict=[]
+for record in event_obj:
+    features = record.strip.split("\t")
+    if(len(features)==61):
+        tmpDict = dict()
+        tmpDict = dict({events_columns[i]: features[i].encode("utf-8") for i in range(len(events_columns))})
+        event_finaldict.append(tmpDict)
 
+for i in range(0,len(gkg_finaldict),1000):
+    insert_data(gkg_finaldict[i:i+1000],"public.events")
+
+mentions_finaldict=[]
+for record in event_obj:
+    features = record.strip.split("\t")
+    if(len(features)==16):
+        tmpDict = dict()
+        tmpDict = dict({mentions_files[i]: features[i].encode("utf-8") for i in range(len(mentions))})
+        event_finaldict.append(tmpDict)
+
+for i in range(0,len(gkg_finaldict),1000):
+    insert_data(gkg_finaldict[i:i+1000],"public.mentions")
 
 
 #publish_message(kafkaProducer, "my-topic", "gkg", record)
