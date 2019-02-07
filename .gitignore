@@ -7,7 +7,9 @@ release.properties
 dependency-reduced-pom.xml
 buildNumber.properties
 .mvn/timing.properties
-database.ini
+Consumer/database.ini
+Ingestion/database.ini
+App/database.ini
 .DS_Store
 .DS_Store?
 ._*
