@@ -56,28 +56,6 @@ def insert_data(finaldict,tablename):
         if conn is not None:
             conn.close()
 
-# def connect_kafka_producer():
-#     "Function to create a producer handle"
-#     _producer = None
-#     conf = {'bootstrap.servers': 'ec2-35-165-113-215.us-west-2.compute.amazonaws.com:9092,'
-#                                  'ec2-54-69-173-183.us-west-2.compute.amazonaws.com:9092,'
-#                                  'ec2-54-218-166-98.us-west-2.compute.amazonaws.com:9092,'
-#                                  'ec2-52-24-63-41.us-west-2.compute.amazonaws.com:9092'}
-#     try:
-#         _producer = confluent_kafka.Producer(conf)
-#     except Exception as ex:
-#         print('Exception while connecting Kafka')
-#         print(str(ex))
-#     finally:
-#         return _producer
-
-# producer = KafkaProducer(bootstrap_servers= 'ec2-35-165-113-215.us-west-2.compute.amazonaws.com:9092,'
-#                                  'ec2-54-69-173-183.us-west-2.compute.amazonaws.com:9092,'
-#                                  'ec2-54-218-166-98.us-west-2.compute.amazonaws.com:9092,'
-#                                  'ec2-52-24-63-41.us-west-2.compute.amazonaws.com:9092')
-
-#kafkaProducer=connect_kafka_producer()
-
 def get_event_files(tableprefix):
     return list(my_bucket.objects.filter(Prefix=tableprefix))
 
@@ -85,7 +63,7 @@ def get_event_files(tableprefix):
 client = boto3.client('s3')
 resource = boto3.resource('s3')
 my_bucket = resource.Bucket('gdelt-sample-data')
-events_files = get_event_files("event")
+events_files = get_event_files("events")
 gkg_files = get_event_files("gkg")
 mentions_files = get_event_files("mentions")
 gkg_obj = codecs.getreader('utf-8')(gkg_files[0].get()['Body'])
@@ -120,9 +98,8 @@ gkg = ["recordid","date" , "srccollectionidentifier","srccommonname","documentid
 	"gcam","sharingimage","relatedimages", "socialimageembeds", "socialvideoembeds", "quotations", "allnames", "amounts","translationinfo",
 	"extrasxml"]
 
-mentions = ["GLOBALEVENTID","EventTimeDate","MentionTimeDate","MentionType","MentionSourceName","MentionIdentifier","SentenceID",
-            "Actor1CharOffset","Actor2CharOffset","ActionCharOffset","InRawText","Confidence","MentionDocLen","MentionDocTone",
-            "MentionDocTranslationInfo","Extras"]
+mentions = ["GlobalEventID","EventTimeDate","MentionTimeDate","MentionType","MentionSourceName","MentionIdentifier","SentenceID",
+            "Actor1CharOffset","Actor2CharOffset","ActionCharOffset","InRawText","Confidence","MentionDocLen","MentionDocTone"]
 
 gkg_finaldict=[]
 for record in gkg_obj:
@@ -137,52 +114,24 @@ for i in range(0,len(gkg_finaldict),1000):
 
 event_finaldict=[]
 for record in event_obj:
-    features = record.strip.split("\t")
+    features = record.strip().split("\t")
     if(len(features)==61):
         tmpDict = dict()
         tmpDict = dict({events_columns[i]: features[i].encode("utf-8") for i in range(len(events_columns))})
         event_finaldict.append(tmpDict)
 
-for i in range(0,len(gkg_finaldict),1000):
-    insert_data(gkg_finaldict[i:i+1000],"public.events")
+for i in range(0,len(event_finaldict),1000):
+    insert_data(event_finaldict[i:i+1000],"public.events")
 
 mentions_finaldict=[]
-for record in event_obj:
-    features = record.strip.split("\t")
-    if(len(features)==16):
+for record in mention_obj:
+    features = record.strip().split("\t")
+    print(record)
+    if(len(features)==14):
         tmpDict = dict()
-        tmpDict = dict({mentions_files[i]: features[i].encode("utf-8") for i in range(len(mentions))})
-        event_finaldict.append(tmpDict)
+        tmpDict = dict({mentions[i]: features[i].encode("utf-8") for i in range(len(mentions))})
+        mentions_finaldict.append(tmpDict)
 
-for i in range(0,len(gkg_finaldict),1000):
-    insert_data(gkg_finaldict[i:i+1000],"public.mentions")
+for i in range(0,len(mentions_finaldict),1000):
+    insert_data(mentions_finaldict[i:i+1000],"public.mentions")
 
-
-#publish_message(kafkaProducer, "my-topic", "gkg", record)
-   # features = record.strip().split("\t")
-   # tempDict = dict({events_columns[i]:features[i].encode("utf-8") for i in range(len(events_columns))})
-
-
-   # producer.send("my-topic",str(record.encode("utf-8")),"events")
-
-
-# def get_file_handle(myBucket,fileName):
-#     fileHandle = myBucket.objects(key = fileName)
-#
-# def get_all_bucket_files(myBucket):
-#     fileHandleList = []
-#     for object in myBucket.objects.all():
-#         fileHandleList.append(get_file_handle(myBucket,object.key))
-#     return fileHandleList
-#
-#
-# def get_bucket_details(bucketName):
-#     s3 = boto3.resource('s3')
-#     my_bucket = s3.Bucket(bucketName)
-#     return my_bucket
-
-# if __name__ == '__main__':
-#     bucketName = "gdelt-sample-data"
-#     #topicName = sys.argv[2]
-#     for line in smart_open('s3://gdelt-sample-data/export.csv'):
-#         print(line)
